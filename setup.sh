@@ -73,7 +73,7 @@ apply_firewall_hardening() {
         nft list table inet filter >/dev/null 2>&1 || nft add table inet filter
         nft list chain inet filter input >/dev/null 2>&1 || nft add chain inet filter input { type filter hook input priority 0 \; }
 
-        nft add rule inet filter input udp dport $WG_PORT limit rate 5/second burst 20 accept || true
+        nft add rule inet filter input udp dport $WG_PORT limit rate 5/second burst 20 counter accept || true
         nft add rule inet filter input udp dport $WG_PORT counter drop || true
         nft add rule inet filter input ct state invalid drop || true
 

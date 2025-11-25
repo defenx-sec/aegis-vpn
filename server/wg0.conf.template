@@ -7,7 +7,14 @@ SaveConfig = false
 MTU = 1280   # Prevent leak-prone fragmentation
 
 # NAT & forwarding using nftables (matches v1.3 setup.sh)
-PostUp   = nft add rule inet filter forward iifname "wg0" accept; nft add rule inet filter forward oifname "wg0" accept; nft add rule inet nat postrouting oifname "eth0" masquerade
-PostDown = nft delete rule inet filter forward iifname "wg0" accept; nft delete rule inet filter forward oifname "wg0" accept; nft delete rule inet nat postrouting oifname "eth0" masquerade
+PostUp = \
+nft add rule inet filter forward iifname "wg0" counter accept; \
+nft add rule inet filter forward oifname "wg0" counter accept; \
+nft add rule inet nat postrouting oifname "eth0" counter masquerade
+
+PostDown = \
+nft delete rule inet filter forward iifname "wg0" counter accept; \
+nft delete rule inet filter forward oifname "wg0" counter accept; \
+nft delete rule inet nat postrouting oifname "eth0" counter masquerade
 
 # Note: eth0 must be replaced if VPS uses a different outbound interface.
