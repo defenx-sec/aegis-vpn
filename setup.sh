@@ -95,6 +95,57 @@ echo "[*] Applying basic firewall rules..."
 ufw allow $WG_PORT/udp
 ufw --force enable
 
+# === v1.3 Security Hardening ===
+apply_sysctl_hardening() {
+    echo "[*] Applying sysctl hardening for networking..."
+    sudo bash -c 'cat > /etc/sysctl.d/99-aegis-vpn.conf <<EOF
+# Aegis-VPN v1.3 security hardening
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_ra = 0
+net.ipv6.conf.default.accept_ra = 0
+EOF'
+    sudo sysctl --system >/dev/null 2>&1 || true
+    echo "[*] sysctl hardening applied."
+}
+
+apply_firewall_hardening() {
+    echo "[*] Applying firewall hardening (rate-limits and nft/ufw rules)..."
+    WG_PORT="${WG_PORT:-51820}"
+    if command -v nft >/dev/null 2>&1; then
+        # create table and chain if missing
+        sudo nft list table inet filter >/dev/null 2>&1 || sudo nft add table inet filter
+        sudo nft list chain inet filter input >/dev/null 2>&1 || sudo nft add chain inet filter input { type filter hook input priority 0 \; }
+        # rate-limit WireGuard UDP (burst 20, 5 packets/sec)
+        sudo nft add rule inet filter input udp dport $WG_PORT limit rate 5/second burst 20 accept || true
+        # drop excessive UDP to the port (catch-all)
+        sudo nft add rule inet filter input udp dport $WG_PORT counter drop || true
+        # drop invalid connection tracking states early
+        sudo nft add rule inet filter input ct state invalid drop || true
+        echo "[*] nftables hardening rules applied."
+    else
+        # fallback to ufw
+        if command -v ufw >/dev/null 2>&1; then
+            sudo ufw limit $WG_PORT/udp || true
+            sudo ufw --force enable >/dev/null 2>&1 || true
+            echo "[*] ufw hardening rules applied (limit)."
+        else
+            echo "[!] No nft/ufw found — ensure your firewall is hardened manually."
+        fi
+    fi
+}
+
+# apply hardening
+apply_sysctl_hardening
+apply_firewall_hardening
+
+
 echo "[*] WireGuard setup complete!"
 echo "Server Public IP: $SERVER_PUBLIC_IP"
 echo "Config file location: $WG_DIR/$WG_INTERFACE.conf"
