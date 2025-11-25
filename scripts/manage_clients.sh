@@ -1,74 +1,84 @@
 #!/usr/bin/env bash
 #===========================================================
-# Aegis-VPN Client Manager
+# Aegis-VPN Client Manager v1.3
 # Author: Rabindra
-# Description: Add, remove, or list clients interactively
-# Usage: sudo ./manage-clients.sh [add|remove|list]
 #===========================================================
+
+set -e
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="$BASE_DIR/scripts"
 CLIENTS_DIR="$BASE_DIR/clients"
-mkdir -p $CLIENTS_DIR
 WG_DIR="/etc/wireguard"
 WG_INTERFACE="wg0"
 
-# Source log-hooks
+KEY_AGE_THRESHOLD_DAYS=90
+
 source "$SCRIPTS_DIR/log_hooks.sh"
 
-function add_client() {
-    read -p "Enter client name: " CLIENT_NAME
-    if [ -z "$CLIENT_NAME" ]; then
-        echo "[!] Client name cannot be empty."
-        log_error "Attempted to add client with empty name"
-        return 1
+mkdir -p "$CLIENTS_DIR"
+
+check_key_age() {
+    local keyfile="$1"
+    if [ ! -f "$keyfile" ]; then return; fi
+
+    key_mtime=$(stat -c %Y "$keyfile")
+    now_ts=$(date +%s)
+    age_days=$(( (now_ts - key_mtime) / 86400 ))
+
+    if [ "$age_days" -ge "$KEY_AGE_THRESHOLD_DAYS" ]; then
+        echo "[!] Key $keyfile is ${age_days}d old — rotation recommended."
     fi
-    "$SCRIPTS_DIR/add_client.sh" "$CLIENT_NAME"
 }
 
-function remove_client() {
-    read -p "Enter client name to remove: " CLIENT_NAME
+remove_client() {
+    CLIENT_NAME="$1"
+
     if [ -z "$CLIENT_NAME" ]; then
-        echo "[!] Client name cannot be empty."
-        log_error "Attempted to remove client with empty name"
-        return 1
+        read -p "Enter client name: " CLIENT_NAME
     fi
 
     CONF="$CLIENTS_DIR/$CLIENT_NAME.conf"
-    if [ -f "$CONF" ]; then
-        rm -f "$CONF"
-        echo "[*] Removed $CONF"
-
-        # Remove from server config
-        sed -i "/# $CLIENT_NAME/,/\[Peer\]/d" "$WG_DIR/$WG_INTERFACE.conf" || true
-        wg set $WG_INTERFACE peer "$(grep -A1 "# $CLIENT_NAME" $WG_DIR/$WG_INTERFACE.conf | grep PublicKey | awk '{print $3}')" remove 2>/dev/null || true
-
-        log_connection "$CLIENT_NAME" "N/A" "disconnected"
-        log_audit "Client removed: $CLIENT_NAME"
-        echo "[*] Client $CLIENT_NAME successfully removed from server and logs."
-    else
-        echo "[!] Client not found!"
-        log_error "Attempted to remove non-existing client: $CLIENT_NAME"
+    if [ ! -f "$CONF" ]; then
+        echo "[!] Client does not exist."
+        log_error "remove failed: $CLIENT_NAME not found"
+        return 1
     fi
+
+    PUBLIC_KEY=$(grep -A 4 "\[$CLIENT_NAME\]" "$WG_DIR/$WG_INTERFACE.conf" 2>/dev/null | grep PublicKey | awk '{print $3}')
+
+    rm -f "$CONF"
+
+    if [ -n "$PUBLIC_KEY" ]; then
+        wg set "$WG_INTERFACE" peer "$PUBLIC_KEY" remove || true
+    fi
+
+    sed -i "/# $CLIENT_NAME/,+3d" "$WG_DIR/$WG_INTERFACE.conf"
+
+    log_connection "$CLIENT_NAME" "N/A" "disconnected"
+    log_audit "Client removed: $CLIENT_NAME"
+
+    echo "[+] Client removed: $CLIENT_NAME"
 }
 
-function list_clients() {
-    echo "[*] Existing clients:"
-    ls $CLIENTS_DIR | grep '.conf$' || echo "No clients found."
+list_clients() {
+    echo "[*] Clients:"
+    ls "$CLIENTS_DIR" | grep ".conf$" || echo "No clients."
 }
 
-# Main
-if [ -z "$1" ]; then
-    echo "Choose action: add / remove / list"
-    read ACTION
-else
-    ACTION="$1"
-fi
+monitor_clients() {
+    echo "[*] Monitoring active peers..."
+    wg show "$WG_INTERFACE" latest-handshakes || echo "wg0 not running."
+}
 
-case $ACTION in
-    add) add_client ;;
-    remove) remove_client ;;
+ACTION="$1"
+
+case "$ACTION" in
+    add) "$SCRIPTS_DIR/add_client.sh" "$2" ;;
+    remove) remove_client "$2" ;;
     list) list_clients ;;
-    *) echo "[!] Invalid action. Use add, remove, or list."
-        log_error "Invalid action in manage-clients.sh: $ACTION" ;;
+    monitor) monitor_clients ;;
+    *)
+        echo "Usage: manage_clients.sh [add|remove|list|monitor]"
+        ;;
 esac
