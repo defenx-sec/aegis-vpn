@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #===========================================================
-# Aegis-VPN Setup Script v1.3 (Security Update - iptables)
+# Aegis-VPN Setup Script v1.3 (Security Update - iptables FIXED)
 # Author: Rabindra
 #===========================================================
 
@@ -11,84 +11,41 @@ WG_PORT="51820"
 WG_DIR="/etc/wireguard"
 CLIENTS_DIR="$PWD/clients"
 
-AUTO_MODE=false
-[[ "$1" == "--auto" ]] && AUTO_MODE=true
+# Detect outbound interface dynamically
+OUT_IFACE=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
 
-# Install banner tool
-if ! command -v figlet >/dev/null 2>&1; then
-    apt-get update -qq
-    apt-get install -y figlet >/dev/null 2>&1
-fi
+echo "[*] Detected outbound interface: $OUT_IFACE"
 
-clear
-figlet -f big "AEGIS VPN"
-echo -e "\e[1;32mSecure, Fast, Modern\e[0m"
-echo -e "\e[1;33mby Rabindra - 2025\e[0m"
-echo
+# Cleanup old configs to avoid conflicts
+rm -f /etc/wireguard/wg0.conf
 
-SERVER_PUBLIC_IP=$(curl -s https://ipinfo.io/ip || echo "UNKNOWN")
-
-echo "[*] Installing dependencies..."
+# Install dependencies
 apt-get update -y
-apt-get install -y wireguard wireguard-tools qrencode ufw
+apt-get install -y wireguard wireguard-tools qrencode iptables-persistent
 
-mkdir -p "$WG_DIR"
-
-# v1.3 SYSTEM HARDENING
-apply_sysctl_hardening() {
-    echo "[*] Applying sysctl hardening..."
-    cat <<EOF >/etc/sysctl.d/99-aegis-vpn.conf
-# Aegis-VPN v1.3 sysctl hardening
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv4.conf.all.send_redirects = 0
-net.ipv4.conf.default.send_redirects = 0
-net.ipv4.conf.all.accept_source_route = 0
-net.ipv4.conf.default.accept_source_route = 0
-
-net.ipv6.conf.all.accept_redirects = 0
-net.ipv6.conf.default.accept_redirects = 0
-net.ipv6.conf.all.accept_ra = 0
-net.ipv6.conf.default.accept_ra = 0
-
+# SYSCTL HARDENING
+cat <<EOF >/etc/sysctl.d/99-aegis-vpn.conf
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
 EOF
 
-    sysctl --system >/dev/null 2>&1
-    echo "[+] sysctl hardened."
-}
+sysctl --system >/dev/null
 
-# iptables FIREWALL HARDENING
-apply_firewall_hardening() {
-    echo "[*] Applying iptables firewall rules..."
+# FIREWALL RULES
+iptables -t nat -A POSTROUTING -o $OUT_IFACE -j MASQUERADE
+iptables -A FORWARD -i wg0 -j ACCEPT
+iptables -A FORWARD -o wg0 -j ACCEPT
+iptables-save > /etc/iptables/rules.v4
 
-    # NAT for IPv4
-    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+# Generate keys
+mkdir -p $WG_DIR
+wg genkey | tee $WG_DIR/privatekey | wg pubkey > $WG_DIR/publickey
+SERVER_PRIVATE_KEY=$(cat $WG_DIR/privatekey)
 
-    # Forwarding rules
-    iptables -A FORWARD -i wg0 -j ACCEPT
-    iptables -A FORWARD -o wg0 -j ACCEPT
-
-    # Rate-limit WG port
-    iptables -A INPUT -p udp --dport $WG_PORT -m limit --limit 5/second --limit-burst 20 -j ACCEPT
-    iptables -A INPUT -p udp --dport $WG_PORT -j DROP
-
-    echo "[+] iptables firewall hardened."
-}
-
-apply_sysctl_hardening
-apply_firewall_hardening
-
-# WireGuard Setup
-echo "[*] Generating server keys..."
-wg genkey | tee "$WG_DIR/privatekey" | wg pubkey > "$WG_DIR/publickey"
-
-SERVER_PRIVATE_KEY=$(cat "$WG_DIR/privatekey")
-SERVER_PUBLIC_KEY=$(cat "$WG_DIR/publickey")
-
-echo "[*] Creating WireGuard server config..."
-cat > "$WG_DIR/$WG_INTERFACE.conf" <<EOF
+# Create wg0.conf
+cat > $WG_DIR/wg0.conf <<EOF
 [Interface]
 Address = 10.10.0.1/24, fd00:10:10::1/64
 ListenPort = $WG_PORT
@@ -96,16 +53,15 @@ PrivateKey = $SERVER_PRIVATE_KEY
 SaveConfig = false
 MTU = 1280
 
-# iptables NAT & forwarding
-PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o $OUT_IFACE -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o $OUT_IFACE -j MASQUERADE
 EOF
 
-chmod 600 "$WG_DIR/$WG_INTERFACE.conf"
+chmod 600 $WG_DIR/wg0.conf
 
-echo "[*] Starting WireGuard..."
-systemctl enable wg-quick@$WG_INTERFACE
-systemctl restart wg-quick@$WG_INTERFACE
+# Restart WG
+systemctl enable wg-quick@wg0
+systemctl restart wg-quick@wg0
 
 echo
 echo "====================================="
