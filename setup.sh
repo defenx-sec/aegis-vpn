@@ -70,6 +70,13 @@ apply_firewall_hardening() {
     WG_PORT="${WG_PORT:-51820}"
 
     if command -v nft >/dev/null 2>&1; then
+        nft add table inet filter
+        nft add chain inet filter forward { type filter hook forward priority 0 \; }
+        nft add chain inet filter input   { type filter hook input priority 0 \; }
+
+        nft add table inet nat
+        nft add chain inet nat postrouting { type nat hook postrouting priority 100 \; }
+
         nft list table inet filter >/dev/null 2>&1 || nft add table inet filter
         nft list chain inet filter input >/dev/null 2>&1 || nft add chain inet filter input { type filter hook input priority 0 \; }
 
