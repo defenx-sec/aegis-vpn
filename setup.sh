@@ -84,6 +84,11 @@ apply_firewall_hardening() {
         nft add rule inet filter input udp dport $WG_PORT counter drop || true
         nft add rule inet filter input ct state invalid drop || true
 
+        sudo nft add rule inet filter forward iifname "wg0" accept
+        sudo nft add rule inet filter forward oifname "wg0" accept
+        sudo nft add rule inet nat postrouting oifname "eth0" masquerade
+
+
         echo "[+] nftables hardening applied."
     else
         ufw allow $WG_PORT/udp
