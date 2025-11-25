@@ -1,12 +1,13 @@
-# WireGuard Base Server Configuration Template
-
+# WireGuard Base Server Configuration Template (Aegis-VPN v1.3)
 [Interface]
-# Replace with server private key before deployment
 PrivateKey = SERVER_PRIVATE_KEY
-Address = 10.10.0.1/24
+Address = 10.10.0.1/24, fd00:10:10::1/64
 ListenPort = 51820
-SaveConfig = true
+SaveConfig = false
+MTU = 1280   # Prevent leak-prone fragmentation
 
-# NAT & forwarding
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+# NAT & forwarding using nftables (matches v1.3 setup.sh)
+PostUp   = nft add rule inet filter forward iifname "wg0" accept; nft add rule inet filter forward oifname "wg0" accept; nft add rule inet nat postrouting oifname "eth0" masquerade
+PostDown = nft delete rule inet filter forward iifname "wg0" accept; nft delete rule inet filter forward oifname "wg0" accept; nft delete rule inet nat postrouting oifname "eth0" masquerade
+
+# Note: eth0 must be replaced if VPS uses a different outbound interface.
