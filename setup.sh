@@ -1,29 +1,23 @@
 #!/usr/bin/env bash
 #===========================================================
-# Aegis-VPN Setup Script v1.3 (Security Update)
+# Aegis-VPN Setup Script v1.3 (Security Update - iptables)
 # Author: Rabindra
-# Description: Automated WireGuard setup with IPv6,
-#              hardened firewall, sysctl security, and
-#              unattended install support.
-# Usage: sudo ./setup.sh [--auto]
 #===========================================================
 
 set -e
 
-# Vars
 WG_INTERFACE="wg0"
 WG_PORT="51820"
 WG_DIR="/etc/wireguard"
 CLIENTS_DIR="$PWD/clients"
+
 AUTO_MODE=false
+[[ "$1" == "--auto" ]] && AUTO_MODE=true
 
-if [[ "$1" == "--auto" ]]; then
-    AUTO_MODE=true
-fi
-
-# Banner
+# Install banner tool
 if ! command -v figlet >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y figlet >/dev/null 2>&1
+    apt-get update -qq
+    apt-get install -y figlet >/dev/null 2>&1
 fi
 
 clear
@@ -36,7 +30,7 @@ SERVER_PUBLIC_IP=$(curl -s https://ipinfo.io/ip || echo "UNKNOWN")
 
 echo "[*] Installing dependencies..."
 apt-get update -y
-apt-get install -y wireguard wireguard-tools qrencode nftables ufw
+apt-get install -y wireguard wireguard-tools qrencode ufw
 
 mkdir -p "$WG_DIR"
 
@@ -65,37 +59,22 @@ EOF
     echo "[+] sysctl hardened."
 }
 
+# iptables FIREWALL HARDENING
 apply_firewall_hardening() {
-    echo "[*] Applying firewall rules..."
-    WG_PORT="${WG_PORT:-51820}"
+    echo "[*] Applying iptables firewall rules..."
 
-    if command -v nft >/dev/null 2>&1; then
-        nft add table inet filter
-        nft add chain inet filter forward { type filter hook forward priority 0 \; }
-        nft add chain inet filter input   { type filter hook input priority 0 \; }
+    # NAT for IPv4
+    iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 
-        nft add table inet nat
-        nft add chain inet nat postrouting { type nat hook postrouting priority 100 \; }
+    # Forwarding rules
+    iptables -A FORWARD -i wg0 -j ACCEPT
+    iptables -A FORWARD -o wg0 -j ACCEPT
 
-        nft list table inet filter >/dev/null 2>&1 || nft add table inet filter
-        nft list chain inet filter input >/dev/null 2>&1 || nft add chain inet filter input { type filter hook input priority 0 \; }
+    # Rate-limit WG port
+    iptables -A INPUT -p udp --dport $WG_PORT -m limit --limit 5/second --limit-burst 20 -j ACCEPT
+    iptables -A INPUT -p udp --dport $WG_PORT -j DROP
 
-        nft add rule inet filter input udp dport $WG_PORT limit rate 5/second burst 20 counter accept || true
-        nft add rule inet filter input udp dport $WG_PORT counter drop || true
-        nft add rule inet filter input ct state invalid drop || true
-
-        sudo nft add rule inet filter forward iifname "wg0" accept
-        sudo nft add rule inet filter forward oifname "wg0" accept
-        sudo nft add rule inet nat postrouting oifname "eth0" masquerade
-
-
-        echo "[+] nftables hardening applied."
-    else
-        ufw allow $WG_PORT/udp
-        ufw limit $WG_PORT/udp
-        ufw --force enable
-        echo "[+] ufw fallback applied."
-    fi
+    echo "[+] iptables firewall hardened."
 }
 
 apply_sysctl_hardening
@@ -104,10 +83,11 @@ apply_firewall_hardening
 # WireGuard Setup
 echo "[*] Generating server keys..."
 wg genkey | tee "$WG_DIR/privatekey" | wg pubkey > "$WG_DIR/publickey"
+
 SERVER_PRIVATE_KEY=$(cat "$WG_DIR/privatekey")
 SERVER_PUBLIC_KEY=$(cat "$WG_DIR/publickey")
 
-echo "[*] Creating WireGuard config..."
+echo "[*] Creating WireGuard server config..."
 cat > "$WG_DIR/$WG_INTERFACE.conf" <<EOF
 [Interface]
 Address = 10.10.0.1/24, fd00:10:10::1/64
@@ -116,13 +96,14 @@ PrivateKey = $SERVER_PRIVATE_KEY
 SaveConfig = false
 MTU = 1280
 
-PostUp   = nft add rule inet filter forward iifname "$WG_INTERFACE" accept; nft add rule inet filter forward oifname "$WG_INTERFACE" accept; nft add rule inet nat postrouting oifname "eth0" masquerade
-PostDown = nft delete rule inet filter forward iifname "$WG_INTERFACE" accept; nft delete rule inet filter forward oifname "$WG_INTERFACE" accept; nft delete rule inet nat postrouting oifname "eth0" masquerade
+# iptables NAT & forwarding
+PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 EOF
 
 chmod 600 "$WG_DIR/$WG_INTERFACE.conf"
 
-echo "[*] Enabling WireGuard..."
+echo "[*] Starting WireGuard..."
 systemctl enable wg-quick@$WG_INTERFACE
 systemctl restart wg-quick@$WG_INTERFACE
 
