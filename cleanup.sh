@@ -1,58 +1,85 @@
 #!/usr/bin/env bash
 #===========================================================
-# Aegis-VPN Cleanup Script v1.2
+# Aegis-VPN Cleanup Script v1.3
 # Author: Rabindra
-# Description: Completely removes Aegis-VPN setup, configs,
-#              logs, firewall rules, and WireGuard for all users.
+# Description: Clean removal of WireGuard, configs, logs,
+#              firewall rules, sysctl hardening, and scripts.
 # Usage: sudo ./cleanup.sh
 #===========================================================
 
 set -e
 
-echo "[*] WARNING: This will remove all Aegis-VPN files and configurations."
-read -p "Do you really want to continue? (y/N): " confirm
+echo "[*] WARNING: This will remove ALL Aegis-VPN data, configs, and rules."
+read -p "Continue? (y/N): " confirm
 if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
     echo "[*] Cleanup aborted."
     exit 0
 fi
 
-# Stop and disable WireGuard
-echo "[*] Stopping and disabling WireGuard..."
+# STOP & DISABLE WIREGUARD
+echo "[*] Stopping WireGuard..."
 systemctl stop wg-quick@wg0 2>/dev/null || true
 systemctl disable wg-quick@wg0 2>/dev/null || true
 systemctl daemon-reload
 
-# Remove Aegis-VPN directories
-echo "[*] Removing Aegis-VPN files..."
-PROJECT_DIRS=(
-    "/etc/wireguard"
-    "/home/*/aegis-vpn/clients"
-    "/home/*/aegis-vpn/diagrams"
-    "/home/*/aegis-vpn/docs"
-    "/home/*/aegis-vpn/scripts"
-    "/home/*/aegis-vpn/bin"
-    "/home/*/aegis-vpn/var"
-    "/home/*/aegis-vpn/setup.sh"
-    "/home/*/aegis-vpn/LICENSE"
-)
+# Kill any stuck interface
+if ip link show wg0 >/dev/null 2>&1; then
+    wg-quick down wg0 2>/dev/null || true
+    ip link delete wg0 2>/dev/null || true
+fi
 
-for dir in "${PROJECT_DIRS[@]}"; do
-    rm -rf $dir 2>/dev/null || true
-done
+# REMOVE WIREGUARD CONFIGS
+echo "[*] Removing WireGuard configs..."
+rm -rf /etc/wireguard 2>/dev/null || true
 
-# Remove firewall rules
-echo "[*] Removing firewall rules..."
-ufw delete allow 51820/udp 2>/dev/null || true
-ufw reload 2>/dev/null || true
+# Remove systemd override files, if any
+rm -rf /etc/systemd/system/wg-quick@wg0.service.d 2>/dev/null || true
+
+# REMOVE PROJECT FILES
+echo "[*] Removing Aegis-VPN project files..."
+
+# automatically detect install directory
+INSTALL_DIR="$(dirname "$(realpath "$0")")"
+PROJECT_ROOT="$(dirname "$INSTALL_DIR")"
+
+rm -rf "$PROJECT_ROOT" 2>/dev/null || true
+
+# also clean backups
+find / -type f -name "*.bak_v1.3" -delete 2>/dev/null || true
+
+# FIREWALL CLEANUP (UFW + NFT)
+echo "[*] Cleaning firewall rules..."
+
+# UFW
+if command -v ufw >/dev/null 2>&1; then
+    ufw delete allow 51820/udp 2>/dev/null || true
+    ufw reload 2>/dev/null || true
+fi
+
+# iptables fallback
 iptables -F || true
 ip6tables -F || true
 
-# Optional: Remove WireGuard & dependencies
-read -p "Do you want to remove WireGuard and dependencies? (y/N): " dep_confirm
+# nftables cleanup
+if command -v nft >/dev/null 2>&1; then
+    nft flush table inet filter 2>/dev/null || true
+    nft flush table inet nat 2>/dev/null || true
+fi
+
+# REMOVE SYSCTL HARDENING
+if [ -f /etc/sysctl.d/99-aegis-vpn.conf ]; then
+    echo "[*] Removing sysctl hardening..."
+    rm -f /etc/sysctl.d/99-aegis-vpn.conf
+    sysctl --system >/dev/null 2>&1 || true
+fi
+
+# OPTIONAL: REMOVE PACKAGES
+read -p "Remove WireGuard + dependencies? (y/N): " dep_confirm
 if [[ "$dep_confirm" == "y" || "$dep_confirm" == "Y" ]]; then
-    echo "[*] Removing WireGuard and dependencies..."
-    apt-get remove --purge wireguard wireguard-tools qrencode ufw -y || true
+    echo "[*] Removing packages..."
+    apt-get remove --purge -y wireguard wireguard-tools qrencode ufw || true
     apt-get autoremove -y || true
 fi
 
-echo "[*] Cleanup complete! All Aegis-VPN files and settings have been removed."
+echo
+echo "[+] Cleanup complete — Aegis-VPN has been fully removed."
