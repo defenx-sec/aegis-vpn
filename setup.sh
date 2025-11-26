@@ -78,8 +78,8 @@ Address = 10.10.0.1/24, fd86:ea04:1115::1/64
 ListenPort = $WG_PORT
 PrivateKey = $SERVER_PRIVATE_KEY
 SaveConfig = true
-PostUp = ufw route allow in on $WG_INTERFACE out on eth0; ufw route allow in on eth0 out on $WG_INTERFACE
-PostDown = ufw route delete allow in on $WG_INTERFACE out on eth0; ufw route delete allow in on eth0 out on $WG_INTERFACE
+PostUp = ufw route allow in on $WG_INTERFACE out on enX0; ufw route allow in on enX0 out on $WG_INTERFACE
+PostDown = ufw route delete allow in on $WG_INTERFACE out on enX0; ufw route delete allow in on enX0 out on $WG_INTERFACE
 EOF
 
 
