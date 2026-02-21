@@ -1,155 +1,151 @@
 # Contributing to Aegis-VPN
 
-Thank you for your interest in contributing to **Aegis-VPN**!  
-By contributing, you help make this VPN project more secure, reliable, and user-friendly.
-
-This guide outlines how to contribute effectively, including reporting issues, submitting pull requests, and following coding standards.
+Thank you for your interest in contributing to Aegis-VPN. Contributions of all kinds are welcome — bug fixes, new features, documentation improvements, and security reviews.
 
 ---
 
 ## Table of Contents
 
-- [Code of Conduct](#code-of-conduct)  
-- [How to Contribute](#how-to-contribute)  
-  - [Reporting Issues](#reporting-issues)  
-  - [Suggesting Features](#suggesting-features)  
-  - [Submitting Pull Requests](#submitting-pull-requests)  
-- [Development Setup](#development-setup)  
-- [Coding Standards](#coding-standards)  
-- [Testing Your Changes](#testing-your-changes)  
-- [License](#license)  
+- [Reporting Issues](#reporting-issues)
+- [Suggesting Features](#suggesting-features)
+- [Submitting Pull Requests](#submitting-pull-requests)
+- [Development Setup](#development-setup)
+- [Coding Standards](#coding-standards)
+- [Testing](#testing)
+- [License](#license)
 
 ---
 
-## Code of Conduct
+## Reporting Issues
 
-Please follow the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/).  
-All contributors are expected to be respectful, constructive, and professional.
+If you find a bug or unexpected behaviour:
 
----
-
-## How to Contribute
-
-### Reporting Issues
-
-If you find a bug, vulnerability, or unexpected behavior:
-
-1. Check if the issue already exists in [Issues](https://github.com/rabindra789/aegis-vpn/issues).  
-2. Open a new issue with the following information:
-   - **Title:** Short descriptive name of the problem.
-   - **Description:** Clear explanation of the issue.
-   - **Steps to Reproduce:** Include commands, scripts, or configuration snippets.
-   - **Expected vs Actual Behavior**
-   - **Environment Details:** OS, WireGuard version, server type, etc.
-3. Attach logs, screenshots, or diagrams if relevant.
-
----
-
-### Suggesting Features
-
-To propose a new feature or improvement:
-
-1. Check if a similar feature request exists.  
+1. Search [existing issues](https://github.com/defenx-sec/aegis-vpn/issues) first.
 2. Open a new issue with:
-   - **Feature Description:** What it does and why it is useful.
-   - **Use Cases:** Example scenarios where this feature helps.
-   - **Optional:** Draft of implementation idea or diagram.
+   - **Title** — short, descriptive
+   - **Description** — what happened vs. what you expected
+   - **Steps to reproduce** — commands, scripts, config snippets
+   - **Environment** — OS, WireGuard version, server type
+3. Attach logs (`var/log/aegis-vpn/`) or `aegis-vpn check` output if relevant.
+
+For security vulnerabilities, please open a private advisory rather than a public issue.
 
 ---
 
-### Submitting Pull Requests
+## Suggesting Features
 
-1. Fork the repository.  
-2. Clone your fork locally:
+Open an issue with:
+- What the feature does and why it is useful
+- Example use cases
+- Optional: draft implementation idea or diagram
+
+---
+
+## Submitting Pull Requests
+
+1. Fork the repository and clone your fork:
    ```bash
    git clone https://github.com/<your-username>/aegis-vpn.git
-    ```
-
-3. Create a new branch:
-
-   ```bash
-   git checkout -b feature/awesome-feature
+   cd aegis-vpn
    ```
-4. Make your changes with clear commit messages:
 
+2. Create a feature branch:
    ```bash
-   git commit -m "Add feature X to improve VPN client setup"
+   git checkout -b feature/your-feature-name
    ```
-5. Push your branch:
 
+3. Make your changes (see [Coding Standards](#coding-standards) below).
+
+4. Test on a clean environment (see [Testing](#testing)).
+
+5. Commit with a clear message:
    ```bash
-   git push origin feature/awesome-feature
+   git commit -m "feat: add X to improve client onboarding"
    ```
-6. Open a Pull Request against the `main` branch with:
 
-   * Clear description of changes
-   * Reference related issues (e.g., `Fixes #12`)
-   * Screenshots, if UI or CLI changes are involved
-7. Wait for review, respond to comments, and iterate as needed.
+6. Push and open a PR against `main` on `defenx-sec/aegis-vpn`:
+   - Describe what the PR does and why
+   - Reference any related issues (e.g. `Closes #12`)
+   - Include before/after output for CLI changes
 
-> ⚠️ Do not push directly to `main`.
+> Do not push directly to `main`.
 
 ---
 
 ## Development Setup
 
-To work locally:
+```bash
+# Install dependencies
+sudo apt update
+sudo apt install wireguard qrencode curl figlet bash coreutils
 
-1. Install **WireGuard** and required packages:
+# Clone and set up
+git clone https://github.com/<your-username>/aegis-vpn.git
+cd aegis-vpn
+sudo ./setup.sh --auto   # sets up WireGuard on the local machine
 
-   ```bash
-   sudo apt update
-   sudo apt install wireguard qrencode bash
-   ```
-2. Clone the repository:
+# Add a test client
+sudo ./bin/aegis-vpn add
 
-   ```bash
-   git clone https://github.com/rabindra789/aegis-vpn.git
-   cd aegis-vpn
-   ```
-3. Use the **setup script** for a test environment:
-
-   ```bash
-   sudo ./setup.sh --auto
-   ```
-4. Add a test client:
-
-   ```bash
-   sudo ./manage_client.sh add test-client
-   ```
+# Verify the CLI
+sudo ./bin/aegis-vpn --help
+sudo ./bin/aegis-vpn version
+sudo ./bin/aegis-vpn check
+```
 
 ---
 
 ## Coding Standards
 
-* Use **bash scripting best practices**:
+All scripts must:
 
-  * Use `#!/usr/bin/env bash` shebang
-  * Quote variables: `"$VAR"`
-  * Use functions for repeated logic
-  * Handle errors gracefully with `set -e` or custom error checks
-* Comments are **mandatory** for complex sections.
-* Follow **naming conventions**:
+- Use `#!/usr/bin/env bash` as the shebang
+- Include `set -euo pipefail`
+- Source `scripts/lib.sh` for shared constants, colors, and helpers — do not re-declare path variables
+- Quote all variables: `"$VAR"`, `"${ARRAY[@]}"`
+- Use `print_ok`, `print_warn`, `print_err`, `print_info` from `lib.sh` for user-facing output
+- Use `log_connection`, `log_error`, `log_audit` from `log_hooks.sh` for logging
+- Pass a syntax check: `bash -n <script>`
 
-  * Scripts: `snake_case.sh`
-  * Variables: `UPPERCASE` for constants, `lowercase` for locals
+Naming conventions:
+- Scripts: `snake_case.sh`
+- Constants: `UPPERCASE`
+- Local variables: `lowercase`
+
+Do not add hardcoded paths — use the variables exported by `lib.sh` (`BASE_DIR`, `CLIENTS_DIR`, `WG_DIR`, etc.).
 
 ---
 
-## Testing Your Changes
+## Testing
 
-Before submitting PRs:
+Before submitting:
 
-1. Test on a **fresh VPS instance**.
-2. Ensure scripts:
+1. Run syntax checks on all modified scripts:
+   ```bash
+   bash -n scripts/your_script.sh
+   ```
 
-   * Successfully run end-to-end
-   * Generate client configs correctly
-   * Apply firewall rules without errors
-3. Verify **WireGuard connectivity** and packet routing.
+2. Test end-to-end on a fresh system or VM:
+   ```bash
+   sudo ./setup.sh --auto
+   sudo ./bin/aegis-vpn add
+   sudo ./bin/aegis-vpn list
+   sudo ./bin/aegis-vpn check
+   sudo ./bin/aegis-vpn backup
+   sudo ./bin/aegis-vpn remove
+   ```
+
+3. For key rotation changes:
+   ```bash
+   sudo ./bin/aegis-vpn rotate <client>
+   sudo ./bin/aegis-vpn rotate-server
+   sudo ./bin/aegis-vpn check
+   ```
+
+4. Verify WireGuard connectivity from a real client device.
 
 ---
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the **MIT License**.
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
