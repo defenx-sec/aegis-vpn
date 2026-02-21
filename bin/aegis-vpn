@@ -216,7 +216,7 @@ setup_cmd() {
     print_info "Run 'sudo ./setup.sh' to install and configure WireGuard."
 }
 
-# ── Rotate command ────────────────────────────────────────
+# ── Rotate client keys ────────────────────────────────────
 rotate_cmd() {
     local client="${1:-}"
     if [[ -z "$client" ]]; then
@@ -224,6 +224,16 @@ rotate_cmd() {
     fi
     [[ -z "$client" ]] && { print_err "Client name cannot be empty."; return 1; }
     "$SCRIPTS_DIR/rotate_client.sh" "$client"
+    echo
+    read -rp "[*] Press Enter to continue..."
+}
+
+# ── Rotate server key ─────────────────────────────────────
+rotate_server_cmd() {
+    local flags=()
+    # Pass through --qr if called non-interactively with it
+    for arg in "$@"; do flags+=("$arg"); done
+    "$SCRIPTS_DIR/rotate_server.sh" "${flags[@]}"
     echo
     read -rp "[*] Press Enter to continue..."
 }
@@ -270,13 +280,14 @@ menu() {
         printf  "│  Active peers : %-29s  │\n" "${peer_count}"
         echo    "│                                                  │"
         echo    "│   1) Setup          7) Status                   │"
-        echo    "│   2) Add Client     8) Rotate Keys              │"
-        echo    "│   3) Remove Client  9) Backup                   │"
-        echo    "│   4) List Clients  10) Restore                  │"
-        echo    "│   5) View Logs     11) Check Config             │"
-        echo    "│   6) Dashboard     12) Exit                     │"
+        echo    "│   2) Add Client     8) Rotate Client Keys       │"
+        echo    "│   3) Remove Client  9) Rotate Server Key        │"
+        echo    "│   4) List Clients  10) Backup                   │"
+        echo    "│   5) View Logs     11) Restore                  │"
+        echo    "│   6) Dashboard     12) Check Config             │"
+        echo    "│                   13) Exit                      │"
         echo -e "${BOLD}└──────────────────────────────────────────────────┘${RESET}"
-        read -rp "Select an option [1-12]: " choice
+        read -rp "Select an option [1-13]: " choice
 
         case "$choice" in
             1)  setup_cmd ;;
@@ -287,11 +298,12 @@ menu() {
             6)  dashboard_cmd ;;
             7)  status_cmd; read -rp "[*] Press Enter to continue..." ;;
             8)  rotate_cmd ;;
-            9)  backup_cmd ;;
-            10) read -rp "Enter backup file path: " bfile
+            9)  rotate_server_cmd ;;
+            10) backup_cmd ;;
+            11) read -rp "Enter backup file path: " bfile
                 restore_cmd "$bfile" ;;
-            11) check_cmd ;;
-            12) exit 0 ;;
+            12) check_cmd ;;
+            13) exit 0 ;;
             *)  print_warn "Invalid choice."; sleep 1 ;;
         esac
     done
@@ -312,11 +324,12 @@ main() {
         logs)      shift; logs_cmd "$@" ;;
         dashboard) shift; dashboard_cmd "${1:-}" ;;
         status)    status_cmd ;;
-        rotate)    shift; rotate_cmd "${1:-}" ;;
-        backup)    backup_cmd ;;
-        restore)   shift; restore_cmd "${1:-}" ;;
-        check)     source "$SCRIPTS_DIR/validate.sh"; validate_config ;;
-        version)   echo "Aegis-VPN v${AEGIS_VERSION}" ;;
+        rotate)        shift; rotate_cmd "${1:-}" ;;
+        rotate-server) shift; rotate_server_cmd "$@" ;;
+        backup)        backup_cmd ;;
+        restore)       shift; restore_cmd "${1:-}" ;;
+        check)         source "$SCRIPTS_DIR/validate.sh"; validate_config ;;
+        version)       echo "Aegis-VPN v${AEGIS_VERSION}" ;;
         --help|-h|help)
             cat <<'USAGE'
 
@@ -330,6 +343,8 @@ Usage:
   aegis-vpn list                     List all clients with live status
   aegis-vpn status                   Show service status and per-peer bandwidth
   aegis-vpn rotate [<client>]        Rotate keys for a client (keeps IP/DNS)
+  aegis-vpn rotate-server [--qr]    Rotate the SERVER private key; updates all client configs
+                                     --qr also re-displays QR codes for every client
   aegis-vpn backup                   Create tarball backup of all configs
   aegis-vpn restore <file>           Restore from a backup tarball
   aegis-vpn check                    Validate wg0.conf integrity
